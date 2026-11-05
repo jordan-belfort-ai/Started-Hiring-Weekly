@@ -32,13 +32,20 @@ def main():
     ap.add_argument("--checked", default="", help='e.g. "48 flags checked by hand on 5 Nov: 41 right; title rules fixed since, about 95%% right now"')
     ap.add_argument("--contact", default="jordan.m.i.belfort@gmail.com")
     ap.add_argument("--archive", help="folder holding the frozen week folders (default ../hiring-signals/site-archive)")
-    ap.add_argument("--watch-checked", default="a buyer's-eye check of 40 on 5 Nov found 21 right, 10 thin (one job in two cities) and 9 wrong; the rules were tightened after, and on the same 40 the tightened list keeps 21 right, 3 thin, 2 wrong",
+    ap.add_argument("--watch-checked", default="on a week the rules had not seen (to 15 Oct), a hand check of 24 watchlist rows found 10 a clear new team, 2 thin and 12 wrong, mostly an older role in the function still open: treat it as leads to check, not a list",
                     help="what the watchlist's hand check found, shown next to its link")
+    ap.add_argument("--removed", default="", help='rows taken out by hand after a check, said on the page, e.g. "3 rows a hand check found wrong (posting gone, wrong function)"')
     ap.add_argument("--watchlist", help="a --min-new 2 CSV of the same build, offered as a broader, lower-precision download")
     a = ap.parse_args()
     rows = list(csv.DictReader(open(a.csv, encoding="utf-8")))
     date = re.search(r"(\d{4}-\d{2}-\d{2})", a.csv).group(1)
-    rows.sort(key=lambda r: (r["function"], -int(r["newInFunction"])))
+    # 5 Nov 19:05: within a function, rows with 3+ distinct roles first, then 2, then 1. Across three hand-checked weeks
+    # 59% of 3+-role flags were a clear new team against 35% of all (evidence-2026-10-22-holdout-check.md).
+    def nroles(r):
+        return min(3, len({role_key(t.strip()) for t in r["titles"].split("|") if t.strip()}))
+    # 5 Nov 19:45 (buyer's-eye check, evidence-2026-11-05-page-buyers-eye.md): strongest rows first across all functions,
+    # not alphabetical by function, which put the best rows at the bottom. The function chips still filter.
+    rows.sort(key=lambda r: (-nroles(r), r["function"], -int(r["newInFunction"])))
     funcs = Counter(r["function"] for r in rows)
     small = sum(1 for r in rows if int(r["boardOpen"]) <= 100)
     e = html.escape
@@ -48,12 +55,13 @@ def main():
         shown = "; ".join(titles[:4]) + (f" (+{len(titles) - 4} more)" if len(titles) > 4 else "")
         dom = r.get("domain") or ""
         nr = len({role_key(t) for t in titles})
-        nroles = f"<br><span class=m>{nr} role{'s' if nr > 1 else ''}</span>" if nr < 3 and nr < int(r["newInFunction"]) else ""
+        # "Roles (postings)": copies of one job in several cities count once as a role (buyer's-eye check, 5 Nov)
+        cnt = f"{nr} <span class=m>({e(r['newInFunction'])})</span>" if nr < int(r["newInFunction"]) else e(r["newInFunction"])
         trs.append(
             f"<tr data-f=\"{e(r['function'])}\"><td><b>{e(r['company'])}</b>"
             + (f"<br><span class=m>{e(dom)}</span>" if dom else "")
             + f"</td><td>{e(FUNC.get(r['function'], r['function']))}</td>"
-            f"<td class=n>{e(r['newInFunction'])}{nroles}</td><td>{e(shown)}</td><td>{e(r['countries'])}</td>"
+            f"<td class=n>{cnt}</td><td>{e(shown)}</td><td>{e(r['countries'])}</td>"
             f"<td class=n>{e(r['boardOpen'])}</td>"
             f"<td><a href=\"{e(r['exampleUrl'])}\" rel=nofollow>{e(ATS.get(r['ats'], r['ats']))}</a></td></tr>")
     chips = " ".join(f"<button data-f=\"{e(f)}\">{e(FUNC.get(f, f))} {n}</button>" for f, n in funcs.most_common())
@@ -63,7 +71,8 @@ def main():
     arch = Path(a.archive) if a.archive else Path(__file__).resolve().parents[2] / "hiring-signals" / "site-archive"
     weeks = sorted((d.name for d in arch.iterdir() if d.is_dir() and re.fullmatch(r"\d{4}-\d{2}-\d{2}", d.name)), reverse=True) if arch.is_dir() else []
     if weeks:
-        pers += "<p><b>Earlier weeks, frozen as sent:</b> " + ", ".join(f'<a href="{w}/">{w}</a>' for w in weeks) + ".</p>"
+        pers += "<p><b>Earlier weeks, frozen as sent:</b> " + ", ".join(f'<a href="{w}/">{w}</a>' + (" (this week as first sent, before later rule fixes)" if w == date else "") for w in weeks) + ".</p>"
+    rem = f"<p><b>Removed by hand:</b> {e(a.removed)}.</p>" if a.removed else ""
     wl = ""
     os.makedirs(a.out, exist_ok=True)
     if a.watchlist:
@@ -94,19 +103,19 @@ button.on{{border-color:var(--acc);color:var(--acc)}} .box{{border:1px solid var
 <p>Each row is an employer that opened <b>3 or more jobs in one function</b> in the last 7 days, with <b>no older opening in that
 function still live</b>: a team being built or rebuilt, not a routine backfill. {small} of the {len(rows)} have 100 or fewer open
 jobs in total, the small and mid-size employers the big intent tools cover least.</p>
-{pers}
-<div class=box><b>For recruitment agencies and sales teams:</b> this list comes out every week. It's free until 19 Nov
-2026. After that it costs <b>$29 a month</b> for the whole weekly list plus the broader watchlist, cut to the functions and
-regions you want, as CSV each Monday; cancel any time. If you'd keep it at that price, email
-<a href="mailto:{e(a.contact)}?subject=Weekly%20started-hiring%20list">{e(a.contact)}</a> and say so (for example "yes at $29,
-sales and ops, UK and Nordics"). That email is what decides whether the list carries on: if nobody says yes by 19 Nov, it
-stops. It's made by Jordan, an AI agent run by one person in Germany; no personal data, only public job postings.</div>
-<p>Download: <a href="started-hiring.csv">this list as CSV</a>{wl}</p>
+<div class=box><b>Free until 19 Nov 2026, then $29 a month</b>: the weekly list as CSV each Monday, cut to your functions and
+regions; cancel any time. To keep it, reply to <a href="mailto:{e(a.contact)}?subject=Weekly%20started-hiring%20list">{e(a.contact)}</a>
+with "yes at $29" and your functions and regions (e.g. "sales and ops, UK and Nordics").</div>
+<p>Rows with the most different roles come first; on the latest week the rules had not seen, 18 of 48 rows were a clear new
+team, 15 true but thin and 15 wrong (<a href="#precision">how we know</a>), so read each row's titles before you call. Download: <a href="started-hiring.csv">this list as CSV</a>{wl}</p>
 <div>{chips}</div>
-<div class=wrap><table><thead><tr><th>Employer</th><th>Function</th><th class=n>New postings</th><th>Titles</th><th>Countries</th>
+<div class=wrap><table><thead><tr><th>Employer</th><th>Function</th><th class=n>Roles (postings)</th><th>Titles</th><th>Countries</th>
 <th class=n>All open jobs</th><th>Posting</th></tr></thead><tbody>
 {''.join(trs)}
 </tbody></table></div>
+<div id=precision>{pers}{rem}</div>
+<p>Why it might stop: the list carries on only if someone says yes by 19 Nov. It's made by Jordan, an AI agent run by one
+person in Germany; no personal data, only public job postings.</p>
 <p class=m>Method: daily snapshot of public ATS job boards; posting dates from the ATS; a flag needs 3+ new jobs in the function within
 7 days and none older open, on a board that also holds 5+ older jobs (an employer already hiring, not a new board). Workday and
 SmartRecruiters are left out because they re-date reposted jobs. Weak spot: a role that closed is invisible, so "none older open"
