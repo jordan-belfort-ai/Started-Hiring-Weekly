@@ -63,14 +63,49 @@ def own_host(jobs):
     return ""
 
 
-def flags(rows, built, days=7, min_new=3, min_older=5, max_recent_share=0.6, prev_boards=None, min_distinct=1):
+# --dept-guard (5 Nov 22:30, OFF by default, for the 12 Nov test): a department that names a function inside a technical unit
+# ("7202 - Apps for Customer Success", "Sales Engineering", "Marketing Technology") doesn't name that function. Esri support
+# was a RIGHT flag blocked by engineers in "Apps for Customer Success" (evidence-2026-11-05-dept-older-all-weeks.md).
+TECH_DEPT = re.compile(r"\b(apps?|applications?|engineering|engineers?|systems|technology|technologies|it|platforms?|software|"
+                       r"devops|infrastructure|security)\b", re.I)
+DEPT_GUARD = False
+
+
+def dept_funcs(dept):
+    """Functions the ATS department name itself names ("Customer Success" -> support, "Sales & BD" -> sales); empty if none."""
+    if DEPT_GUARD and dept and TECH_DEPT.search(dept):
+        return set()
+    return {fn for fn in FUNC_RE if dept and matches(fn, dept)}
+
+
+def dept_says(fn, dept):
+    return fn in dept_funcs(dept)
+
+
+def dept_says_other(fn, dept):
+    """--dept (5 Nov 19:00, held-out check): the department names a function and it isn't this one ("Sr. Account
+    Manager" in Client Services is not sales... only when the department maps to some other function)."""
+    d = dept_funcs(dept)
+    return bool(d) and fn not in d
+
+
+GENERIC_DEPT = re.compile(r"^(general|other|others|all|n/?a|none|team|company|global|corporate|headquarters|hq|remote|"
+                         r"operations|business|g&a|professional services|\d+)$", re.I)
+
+
+POOL = re.compile(r"talent (pool|community|network)|general (application|interest)|open application|spontaneous application|"
+                  r"join our (team|talent)|initiativbewerbung|future opportunit", re.I)
+
+
+def flags(rows, built, days=7, min_new=3, min_older=5, max_recent_share=0.6, prev_boards=None, min_distinct=1, use_dept=False, dept_older=False, same_dept=False, ignore_pool=False):
     cut = (built - timedelta(days=days)).isoformat()
     boards = defaultdict(list)
     for r in rows:
         ats, slug, company, title, pub, url = r[:6]
         cc, dom = (r[6], r[7]) if len(r) > 7 else ([], "")
+        dept = (r[8] or "") if len(r) > 8 and (use_dept or dept_older or same_dept) else ""
         if ats in DATED and pub and title:
-            boards[(ats, slug)].append((company, title, pub, url, cc or [], dom or ""))
+            boards[(ats, slug)].append((company, title, pub, url, cc or [], dom or "", dept))
     out = []
     for (ats, slug), jobs in boards.items():
         if prev_boards is not None and f"{ats}:{slug}" not in prev_boards:
@@ -80,8 +115,14 @@ def flags(rows, built, days=7, min_new=3, min_older=5, max_recent_share=0.6, pre
         if older < min_older or len(recent) / len(jobs) > max_recent_share:
             continue
         for fn, rx in FUNC_RE.items():
-            fr = [j for j in recent if matches(fn, j[1]) and not EARLY.search(j[1]) and not FOUNDER.search(j[1])]  # a graduate/intern cohort is not a new team
-            if len(fr) >= min_new and len({role_key(j[1]) for j in fr}) >= min_distinct and not any(matches(fn, j[1]) for j in jobs if j[2] < cut):
+            fr = [j for j in recent if matches(fn, j[1]) and not EARLY.search(j[1]) and not FOUNDER.search(j[1])  # a graduate/intern cohort is not a new team
+                  and not (use_dept and dept_says_other(fn, j[6]))]
+            # --same-dept (5 Nov 20:00 trial): the department most of the new roles sit in, if they agree and it isn't generic
+            nd = Counter(j[6].strip().lower() for j in fr if j[6] and j[6].strip())
+            home = nd.most_common(1)[0][0] if same_dept and nd and nd.most_common(1)[0][1] * 2 > len(fr) and not GENERIC_DEPT.search(nd.most_common(1)[0][0]) else ""
+            if len(fr) >= min_new and len({role_key(j[1]) for j in fr}) >= min_distinct and not any(
+                    matches(fn, j[1]) or (dept_older and dept_says(fn, j[6])) or (use_dept and dept_says(fn, j[6]))
+                    or (home and j[6].strip().lower() == home) for j in jobs if j[2] < cut and not (ignore_pool and POOL.search(j[1]))):
                 out.append({"ats": ats, "board": slug, "company": jobs[0][0] or slug, "function": fn,
                             "newInFunction": len(fr), "distinctTitles": len({j[1].strip().lower() for j in fr}), "boardOpen": len(jobs), "boardNewTotal": len(recent),
                             "titles": " | ".join(sorted({j[1] for j in fr}))[:400], "exampleUrl": fr[0][3],
@@ -99,7 +140,7 @@ def from_store():
         b = urllib.request.urlopen(store + k, timeout=180).read()
         rows = json.loads(gzip.decompress(b) if b[:2] == b"\x1f\x8b" else b)
         return [[r.get("ats"), r.get("boardSlug"), r.get("company"), r.get("title"), r.get("publishedAt"), r.get("url"),
-                 country_codes(r), (r.get("companyDomain") or "").lower().removeprefix("www.")]
+                 country_codes(r), (r.get("companyDomain") or "").lower().removeprefix("www."), r.get("department") or ""]
                 for r in rows if r.get("ats") in DATED]
     rows = []
     with cf.ThreadPoolExecutor(8) as ex:
@@ -120,13 +161,32 @@ def main():
     ap.add_argument("--dump", help="save the downloaded rows (gz JSON) here, to pass as `rows` to a second run: one index download, not two (~68 MB each, billed to our Apify account)")
     ap.add_argument("--prev-boards", help="text file of ats:board lines from the previous build (the GitHub Action's state)")
     ap.add_argument("--write-boards", help="write this build's ats:board lines here, for the next --prev-boards")
+    ap.add_argument("--dept-older", action="store_true", help="only the first half of --dept: an older open job whose ATS department "
+                    "names the function blocks the flag; new jobs are not filtered by department (5 Nov 19:55 trial, after the 15 Oct held-out check)")
+    ap.add_argument("--same-dept", action="store_true", help="REJECTED 5 Nov 20:00 (-18 RIGHT/-19 WRONG over four hand-checked weeks): an older open job in the same ATS department as most of the "
+                    "new roles blocks the flag (generic departments ignored)")
+    ap.add_argument("--dept", action="store_true", help="also use the ATS department: an older job whose department names the "
+                    "function blocks the flag, and a new job whose department names a different function doesn't count (5 Nov 19:00, trial: REJECTED as is, it dropped 11 hand-checked RIGHT flags across three weeks, evidence-2026-10-22-holdout-check.md)")
+    ap.add_argument("--dept-guard", action="store_true", help="with --dept-older/--dept: departments naming a technical unit "
+                    "(Apps, Engineering, Systems, IT...) name no function. OFF by default; tested on 12 Nov (5 Nov 22:30)")
+    ap.add_argument("--ignore-pool", action="store_true",
+                    help="5 Nov 21:10 trial, off by default: an older 'Talent Pool'/'General Application' posting doesn't block a flag "
+                         "(it blocked CallRail, UVVC, First Global with --dept-older; evidence-2026-10-08-dept-older-removed.md). Judge on 12 Nov")
+    ap.add_argument("--asof", help="YYYY-MM-DD: pretend the build ran at the end of that day (jobs posted after it are dropped). "
+                    "A past week as a dev set for rule changes (5 Nov): biased, since roles closed since then are invisible, "
+                    "so it overstates 'no older opening'; use it to find wrong-function and rule errors, not to measure precision")
     ap.add_argument("--prev", help="an earlier data/hiring/<date>.csv.gz: only boards present in it")
     a = ap.parse_args()
+    global DEPT_GUARD
+    DEPT_GUARD = a.dept_guard
     d = json.load(gzip.open(a.rows, "rt")) if a.rows else from_store()
     if a.dump:
         with gzip.open(a.dump, "wt", encoding="utf8") as f:
             json.dump(d, f)
     built = datetime.fromisoformat(d["builtAt"])
+    if a.asof:
+        built = datetime.fromisoformat(a.asof + "T23:59:59+00:00")
+        d = {"builtAt": built.isoformat(), "rows": [r for r in d["rows"] if r[4] and r[4][:10] <= a.asof]}
     hist = Path(__file__).resolve().parent.parent / "data" / "hiring"
     if a.daily:
         out = hist / "started" / f"{built.date()}.csv"
@@ -146,7 +206,7 @@ def main():
         prev = set(Path(a.prev_boards).read_text(encoding="utf8").split())
     if a.write_boards:
         Path(a.write_boards).write_text("\n".join(sorted({f"{r[0]}:{r[1]}" for r in d["rows"]})) + "\n", encoding="utf8")
-    fl = flags(d["rows"], built, a.days, a.min_new, prev_boards=prev, min_distinct=a.min_distinct)
+    fl = flags(d["rows"], built, a.days, a.min_new, prev_boards=prev, min_distinct=a.min_distinct, use_dept=a.dept, dept_older=a.dept_older, same_dept=a.same_dept, ignore_pool=a.ignore_pool)
     by = defaultdict(int)
     for r in fl:
         by[r["function"]] += 1
