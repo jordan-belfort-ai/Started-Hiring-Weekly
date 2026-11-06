@@ -14,7 +14,42 @@ from pathlib import Path
 from collections import Counter
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from started_by_postdate import role_key  # noqa: E402  5 Nov 15:40: postings that fold into 1-2 roles get a visible "(N roles)"
+from started_by_postdate import role_key as _rule_role_key  # noqa: E402  5 Nov 15:40: postings that fold into 1-2 roles get a visible "(N roles)"
+
+# 6 Nov 06:50 (cloud): display only. The flag rule's role_key (preregistered for 12 Nov, unchanged) splits on " - " but
+# not on ", Colorado", so Finvari's 2 jobs posted in 4 territories showed as 8 roles. The 12 Nov preregistration (section 5)
+# counts a territory split as one role; the page's count and order now follow that. Only a trailing place after a comma
+# is dropped ("Account Executive, Florida"), never a product or segment ("Senior Product Manager, CPQ").
+_PLACES = set("""alabama alaska arizona arkansas california colorado connecticut delaware florida georgia hawaii idaho illinois
+indiana iowa kansas kentucky louisiana maine maryland massachusetts michigan minnesota mississippi missouri montana nebraska
+nevada new hampshire new jersey new mexico new york north carolina north dakota ohio oklahoma oregon pennsylvania rhode island
+south carolina south dakota tennessee texas utah vermont virginia washington west virginia wisconsin wyoming
+seattle boston chicago denver austin dallas houston atlanta miami phoenix portland nashville san francisco los angeles
+san diego new york city nyc philadelphia charlotte raleigh salt lake city minneapolis detroit toronto vancouver montreal
+london manchester dublin paris berlin munich hamburg amsterdam madrid barcelona milan stockholm copenhagen oslo helsinki
+zurich vienna warsaw lisbon sydney melbourne singapore
+us usa united states uk united kingdom canada germany france spain italy netherlands ireland sweden denmark norway finland
+poland portugal switzerland austria australia india japan mexico brazil
+emea apac latam dach nordics benelux north america europe remote east west central northeast southeast midwest southwest
+northwest""".replace("\n", " ").split(" "))
+_MULTI = {"new hampshire", "new jersey", "new mexico", "new york", "north carolina", "north dakota", "rhode island",
+          "south carolina", "south dakota", "west virginia", "san francisco", "los angeles", "san diego", "new york city",
+          "salt lake city", "united states", "united kingdom", "north america"}
+
+
+def _is_place(x):
+    x = re.sub(r"[^a-z ]", " ", x.lower()).split()
+    if not x:
+        return False
+    j = " ".join(x)
+    return j in _MULTI or j in _PLACES or all(w in _PLACES or w in {"remote", "hybrid", "or", "and"} for w in x)
+
+
+def role_key(title):
+    parts = re.sub(r"\([^)]*\)|\[[^\]]*\]", " ", title).split(",")  # parentheses first: "(Part-time, Remote)"
+    while len(parts) > 1 and _is_place(parts[-1]):
+        parts.pop()
+    return _rule_role_key(",".join(parts))
 
 FUNC = {"sales": "Sales", "ops": "Operations", "support": "Customer support", "marketing": "Marketing",
         "finance": "Finance", "product": "Product", "design": "Design", "people": "People / HR",
@@ -32,7 +67,7 @@ def main():
     ap.add_argument("--checked", default="", help='e.g. "48 flags checked by hand on 5 Nov: 41 right; title rules fixed since, about 95%% right now"')
     ap.add_argument("--contact", default="jordan.m.i.belfort@gmail.com")
     ap.add_argument("--archive", help="folder holding the frozen week folders (default ../hiring-signals/site-archive)")
-    ap.add_argument("--watch-checked", default="on a week the rules had not seen (to 15 Oct), a hand check of 24 watchlist rows found 10 a clear new team, 2 thin and 12 wrong, mostly an older role in the function still open: treat it as leads to check, not a list",
+    ap.add_argument("--watch-checked", default="on a week the rules had not seen (to 15 Oct), a hand check of 24 watchlist rows found 10 a clear new team, 2 thin and 12 wrong, mostly an older role in the function still open. All 100 rows of the week to 6 Nov were checked by hand that day: 59 a clear new team, 14 thin, 27 wrong (the 21 clear-cut wrong ones stay off the page until 20 Nov). Treat it as leads to check, not a list",
                     help="what the watchlist's hand check found, shown next to its link")
     ap.add_argument("--removed", default="", help='rows taken out by hand after a check, said on the page, e.g. "3 rows a hand check found wrong (posting gone, wrong function)"')
     ap.add_argument("--watchlist", help="a --min-new 2 CSV of the same build, offered as a broader, lower-precision download")
@@ -103,10 +138,10 @@ button.on{{border-color:var(--acc);color:var(--acc)}} .box{{border:1px solid var
 <p>Each row is an employer that opened <b>3 or more jobs in one function</b> in the last 7 days, with <b>no older opening in that
 function still live</b>: a team being built or rebuilt, not a routine backfill. {small} of the {len(rows)} have 100 or fewer open
 jobs in total, the small and mid-size employers the big intent tools cover least.</p>
-<div class=box><b>Free until 19 Nov 2026, then $29 a month</b>: the weekly list as CSV each Monday, cut to your functions and
-regions; cancel any time. To keep it, reply to <a href="mailto:{e(a.contact)}?subject=Weekly%20started-hiring%20list">{e(a.contact)}</a>
-with "yes at $29" and your functions and regions (e.g. "sales and ops, UK and Nordics").</div>
-<p>Rows with the most different roles come first; on the latest week the rules had not seen, 18 of 48 rows were a clear new
+<div class=box><b>Free for your first two months, no card needed</b>: the weekly list as CSV each Monday, cut to your functions and
+regions. After that it's $29 a month if you keep it; if not, it simply stops. To start, reply to <a href="mailto:{e(a.contact)}?subject=Weekly%20started-hiring%20list">{e(a.contact)}</a>
+with "yes" and your functions and regions (e.g. "sales and ops, UK and Nordics").</div>
+<p>Rows with 3 or more different roles come first (a role posted in several cities or territories can still count more than once: read the titles); on the latest week the rules had not seen, 18 of 48 rows were a clear new
 team, 15 true but thin and 15 wrong (<a href="#precision">how we know</a>), so read each row's titles before you call. Download: <a href="started-hiring.csv">this list as CSV</a>{wl}</p>
 <div>{chips}</div>
 <div class=wrap><table><thead><tr><th>Employer</th><th>Function</th><th class=n>Roles (postings)</th><th>Titles</th><th>Countries</th>
@@ -114,7 +149,7 @@ team, 15 true but thin and 15 wrong (<a href="#precision">how we know</a>), so r
 {''.join(trs)}
 </tbody></table></div>
 <div id=precision>{pers}{rem}</div>
-<p>Why it might stop: the list carries on only if someone says yes by 19 Nov. It's made by Jordan, an AI agent run by one
+<p>It's made by Jordan, an AI agent run by one
 person in Germany; no personal data, only public job postings.</p>
 <p class=m>Method: daily snapshot of public ATS job boards; posting dates from the ATS; a flag needs 3+ new jobs in the function within
 7 days and none older open, on a board that also holds 5+ older jobs (an employer already hiring, not a new board). Workday and
