@@ -146,7 +146,10 @@ def from_store():
     with cf.ThreadPoolExecutor(8) as ex:
         for rs in ex.map(one, m["chunks"]):
             rows += rs
-    return {"builtAt": m["builtAt"], "rows": rows}
+    # 7 Nov 13:05: boards whose read this build was incomplete (short of their own total, or repeating IDs). On those,
+    # "no older role in the function" was checked against a partial list, so main() flags none of them.
+    return {"builtAt": m["builtAt"], "rows": rows,
+            "incomplete": sorted(set(m.get("shortReads") or {}) | set(m.get("dupReads") or {}))}
 
 
 def main():
@@ -186,7 +189,8 @@ def main():
     built = datetime.fromisoformat(d["builtAt"])
     if a.asof:
         built = datetime.fromisoformat(a.asof + "T23:59:59+00:00")
-        d = {"builtAt": built.isoformat(), "rows": [r for r in d["rows"] if r[4] and r[4][:10] <= a.asof]}
+        d = {"builtAt": built.isoformat(), "rows": [r for r in d["rows"] if r[4] and r[4][:10] <= a.asof],
+             "incomplete": d.get("incomplete") or []}
     hist = Path(__file__).resolve().parent.parent / "data" / "hiring"
     if a.daily:
         out = hist / "started" / f"{built.date()}.csv"
@@ -207,13 +211,21 @@ def main():
     if a.write_boards:
         Path(a.write_boards).write_text("\n".join(sorted({f"{r[0]}:{r[1]}" for r in d["rows"]})) + "\n", encoding="utf8")
     fl = flags(d["rows"], built, a.days, a.min_new, prev_boards=prev, min_distinct=a.min_distinct, use_dept=a.dept, dept_older=a.dept_older, same_dept=a.same_dept, ignore_pool=a.ignore_pool)
+    bad = set(d.get("incomplete") or [])  # dumps written before 7 Nov 13:05 carry none
+    if bad:
+        cut = [r for r in fl if f"{r['ats']}:{r['board']}" in bad]
+        if cut:
+            print(f"{len(cut)} flags dropped: their board read incomplete this build ({', '.join(sorted({r['company'] for r in cut}))[:300]})")
+        fl = [r for r in fl if f"{r['ats']}:{r['board']}" not in bad]
     by = defaultdict(int)
     for r in fl:
         by[r["function"]] += 1
     print(f"{len(fl)} flags at {len({(r['ats'], r['board']) for r in fl})} employers; by function: {dict(sorted(by.items(), key=lambda x: -x[1]))}")
     if a.csv:
         with open(a.csv, "w", newline="", encoding="utf8") as f:
-            w = csv.DictWriter(f, fieldnames=list(fl[0]))
+            # fixed columns: an empty list (every flag dropped as incomplete) writes a header, not an IndexError (review 7 Nov)
+            w = csv.DictWriter(f, fieldnames=list(fl[0]) if fl else ["ats", "board", "company", "function", "newInFunction",
+                               "distinctTitles", "boardOpen", "boardNewTotal", "titles", "exampleUrl", "countries", "domain"])
             w.writeheader()
             w.writerows(fl)
     if a.sample:
