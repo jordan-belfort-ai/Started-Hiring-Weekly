@@ -43,7 +43,7 @@ def main():
             continue
         if "</main>" not in t:
             sys.exit(f"impressum: {page} has no </main>; not deploying a page without it")
-        page.write_text(t.replace("</main>", block + "</main>", 1), encoding="utf-8")
+        page.write_bytes(t.replace("</main>", block + "</main>", 1).encode("utf-8"))  # bytes: write_text on Windows made the page CRLF
         n += 1
     print(f"impressum: added to {n} pages")
 
