@@ -2,11 +2,22 @@
 # Rebuild this week's page from the public job index (Apify store VFEsrfmHwQiuxShwN), once per new build.
 set -euo pipefail
 BUILT=$(curl -s https://api.apify.com/v2/key-value-stores/VFEsrfmHwQiuxShwN/records/MANIFEST | python3 -c "import json,sys;print(json.load(sys.stdin)['builtAt'])")
-if [ -f built.txt ] && [ "$(cat built.txt)" = "$BUILT" ]; then echo "build $BUILT already rendered"; exit 0; fi
+# 8 Nov: a hand-wrong.csv change re-renders the same build (it used to wait for the next one, so dropped rows stayed up
+# to a day on the page the pitches link). The re-render diffs against boards-before.txt, the boards file the first
+# render of that build read, so it equals that render plus the new drops.
+HW=$(sha256sum hand-wrong.csv | cut -c1-16)
+PREV=boards-prev.txt
+if [ -f built.txt ] && [ "$(cat built.txt)" = "$BUILT" ]; then
+  if [ "$(cat hand-wrong.sha 2>/dev/null)" = "$HW" ]; then echo "build $BUILT already rendered"; exit 0; fi
+  if [ ! -f boards-before.txt ]; then echo "hand-wrong.csv changed but no boards-before.txt: the next build applies it"; exit 0; fi
+  echo "hand-wrong.csv changed: re-rendering $BUILT"; PREV=boards-before.txt
+else
+  cp boards-prev.txt boards-before.txt 2>/dev/null || true
+fi
 DAY=${BUILT:0:10}
 T=$(mktemp -d)
-python -P scripts/started_by_postdate.py --prev-boards boards-prev.txt --write-boards "$T/boards.txt" --csv "$T/started-$DAY.csv" --dump "$T/rows.json.gz"
-python -P scripts/started_by_postdate.py "$T/rows.json.gz" --prev-boards boards-prev.txt --min-new 2 --min-distinct 2 --csv "$T/watch2-$DAY.csv"  # one download, not two
+python -P scripts/started_by_postdate.py --prev-boards "$PREV" --write-boards "$T/boards.txt" --csv "$T/started-$DAY.csv" --dump "$T/rows.json.gz"
+python -P scripts/started_by_postdate.py "$T/rows.json.gz" --prev-boards "$PREV" --min-new 2 --min-distinct 2 --csv "$T/watch2-$DAY.csv"  # one download, not two
 python -P scripts/guess_domains.py "$T/started-$DAY.csv" "$T/watch2-$DAY.csv" --save | tail -1 || true
 # rows a hand check found wrong (hand-wrong.csv, a copy of jordan's ventures/hiring-signals/hand-wrong.csv) stay off until their until-date
 mkdir -p "$T/page"; REMOVED=$(python -P scripts/drop_hand_wrong.py "$T/started-$DAY.csv" "$T/page/started-$DAY.csv" --hand hand-wrong.csv)
@@ -17,3 +28,4 @@ python -P scripts/started_page.py "$T/page/started-$DAY.csv" . --watchlist "$T/p
 python -P scripts/add_impressum.py . --src impressum.txt
 cp "$T/boards.txt" boards-prev.txt
 echo "$BUILT" > built.txt
+echo "$HW" > hand-wrong.sha
