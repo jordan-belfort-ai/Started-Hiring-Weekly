@@ -2330,7 +2330,6 @@ ashby:opendr
 ashby:opened
 ashby:openevidence
 ashby:opengov
-ashby:openhomefoundation
 ashby:openloophealth
 ashby:openlooppartners
 ashby:openly
@@ -2862,7 +2861,6 @@ ashby:runway-ml
 ashby:rwazi
 ashby:rwx
 ashby:rxvantage
-ashby:ryvn
 ashby:sabi
 ashby:sable
 ashby:safe
@@ -4107,7 +4105,6 @@ gem:oliv-ai
 gem:onesignal
 gem:onetrust-llc-sandbox
 gem:onfrontiers
-gem:ontrackstart-com
 gem:open-door-legal
 gem:openreqstaffing
 gem:opine
@@ -4205,7 +4202,6 @@ gem:senpilot
 gem:sensorum-health
 gem:sentient-foundation
 gem:sentient-machines
-gem:servi
 gem:service-beyond-hr
 gem:shef-com
 gem:shorebird-dev
@@ -4240,7 +4236,6 @@ gem:synaipse
 gem:syndesus
 gem:synthbee
 gem:synthio-labs
-gem:talent-al
 gem:talmenta
 gem:taro
 gem:teampascal-com
@@ -5927,7 +5922,6 @@ greenhouse:ebury
 greenhouse:eccintegrator
 greenhouse:echodynecorp
 greenhouse:eclinicalsolutions
-greenhouse:eclipse
 greenhouse:eclipsetrading
 greenhouse:eclipsyssolutions
 greenhouse:ecoatmgazelle
@@ -6275,6 +6269,7 @@ greenhouse:floridamedicalclinic
 greenhouse:flourish
 greenhouse:flovisionsolutions
 greenhouse:flowcode
+greenhouse:flowfuse
 greenhouse:flowtraders
 greenhouse:flowtradersuspartners
 greenhouse:fluency
@@ -6831,7 +6826,6 @@ greenhouse:impinjexternal
 greenhouse:impiricus
 greenhouse:implicit
 greenhouse:imply
-greenhouse:imubit
 greenhouse:imvtcorporation
 greenhouse:inbank
 greenhouse:inceptive
@@ -6963,6 +6957,7 @@ greenhouse:ixllearning
 greenhouse:jackmortonworldwide
 greenhouse:jackpot
 greenhouse:jadebiosciences
+greenhouse:jamasoftware
 greenhouse:jamf
 greenhouse:jamfilled
 greenhouse:jampp
@@ -9682,7 +9677,6 @@ greenhouse:viralnation
 greenhouse:virbiotechnologyinc
 greenhouse:virtru
 greenhouse:virtu
-greenhouse:viseai
 greenhouse:vistadelmar
 greenhouse:visualconcepts
 greenhouse:vitalcaringgroup
@@ -12439,7 +12433,6 @@ personio:suena-energy
 personio:summum
 personio:sungrow-emea
 personio:supertext
-personio:surf-spirit
 personio:swat-io-gmbh-1
 personio:swenex
 personio:swissbit
